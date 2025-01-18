@@ -14,11 +14,20 @@ import urllib
 from pprint import pformat
 
 import anyio
-from asyncswagger11.client import SwaggerClient
+from aioswagger11.client import SwaggerClient
 from wsproto.events import CloseConnection, TextMessage
 
 from .model import CLASS_MAP
-from .model import Channel, Bridge, Playback, LiveRecording, StoredRecording, Endpoint, DeviceState, Sound
+from .model import (
+    Channel,
+    Bridge,
+    Playback,
+    LiveRecording,
+    StoredRecording,
+    Endpoint,
+    DeviceState,
+    Sound,
+)
 from .model import Repository
 
 log = logging.getLogger(__name__)
@@ -27,8 +36,7 @@ __all__ = ["Client"]
 
 
 class _EventHandler(object):
-    """Class to allow events to be unsubscribed.
-    """
+    """Class to allow events to be unsubscribed."""
 
     def __init__(self, client, event_type, mangler=None, filter=None):
         self.send_stream, self.receive_stream = anyio.create_memory_object_stream()
@@ -90,12 +98,16 @@ class Client:
         self.swagger = SwaggerClient(http_client=http_client, url=url)
         self.class_map = CLASS_MAP.copy()
         tm = time.time()
-        self._id_name = "ARI.%x.%x%03x" % (os.getpid(), int(tm), int(tm * 0x1000) & 0xFFF)
+        self._id_name = "ARI.%x.%x%03x" % (
+            os.getpid(),
+            int(tm),
+            int(tm * 0x1000) & 0xFFF,
+        )
         self._id_seq = 0
         self._reader = None  # Event reader
 
         if isinstance(apps, str):
-            apps = apps.split(',')
+            apps = apps.split(",")
         self._apps = apps
 
     def __repr__(self):
@@ -108,7 +120,7 @@ class Client:
     def is_my_id(self, id):
         if id == self._id_name:
             return True
-        return id.startswith(self._id_name + '.')
+        return id.startswith(self._id_name + ".")
 
     async def __aenter__(self):
         await self._init()
@@ -133,7 +145,9 @@ class Client:
         """
         id = self.client.generate_id()
         chan = Channel(self, id=id)
-        ch = await self.channels.originateWithId(endpoint=endpoint, app=self._apps[0], **kw)
+        ch = await self.channels.originateWithId(
+            endpoint=endpoint, app=self._apps[0], **kw
+        )
         return State(ch)
 
     def __enter__(self):
@@ -147,7 +161,7 @@ class Client:
 
     def __aiter__(self):
         if self._reader is None:
-            self._reader = _EventHandler(self, '*')
+            self._reader = _EventHandler(self, "*")
             self._reader.open()
         return self._reader
 
@@ -157,13 +171,15 @@ class Client:
 
         Returns an async iterator that yields (channel,start_event) tuples.
         """
-        return self.on_channel_event("StasisStart", filter=lambda evt: evt.args[0] == endpoint)
+        return self.on_channel_event(
+            "StasisStart", filter=lambda evt: evt.args[0] == endpoint
+        )
 
     @property
     def app(self):
         return self._apps[0]
 
-    async def _run(self, evt: anyio.Event=None):
+    async def _run(self, evt: anyio.Event = None):
         """Connect to the WebSocket and begin processing messages.
 
         This method will block until all messages have been received from the
@@ -193,7 +209,6 @@ class Client:
                 with anyio.CancelScope(shield=True):
                     await ws.close()
 
-
     async def _check_runtime(self, recv):
         """This gets streamed a message when processing begins, and `None`
         when it ends. Repeat.
@@ -214,13 +229,15 @@ class Client:
                 log.error("Processing delayed: %s", msg)
                 t = anyio.current_time()
                 # don't hard-fail that fast when debugging
-                with anyio.fail_after(1 if 'pdb' not in sys.modules else 99):
+                with anyio.fail_after(1 if "pdb" not in sys.modules else 99):
                     msg = await recv.receive()
                     if msg is False:
                         return
                     assert msg is None, msg
                     pass  # processing delayed, you have a problem
-                log.error("Processing recovered after %.2f sec", (anyio.current_time()) - t)
+                log.error(
+                    "Processing recovered after %.2f sec", (anyio.current_time()) - t
+                )
 
     async def __run(self, ws):
         """Drains all messages from a WebSocket, sending them to the client's
@@ -237,7 +254,7 @@ class Client:
         while True:
             try:
                 msg = await ws_.__anext__()
-            except (StopAsyncIteration,anyio.ClosedResourceError):
+            except (StopAsyncIteration, anyio.ClosedResourceError):
                 break
 
             if isinstance(msg, CloseConnection):
@@ -246,7 +263,7 @@ class Client:
                 log.warning("Unknown JSON message type: %s", repr(msg))
                 continue  # ignore
             msg_json = json.loads(msg.data)
-            if not isinstance(msg_json, dict) or 'type' not in msg_json:
+            if not isinstance(msg_json, dict) or "type" not in msg_json:
                 log.error("Invalid event: %s", msg)
                 continue
             try:
@@ -260,11 +277,12 @@ class Client:
         await self.swagger.init()
         # Extract models out of the events resource
         events = [
-            api['api_declaration'] for api in self.swagger.api_docs['apis']
-            if api['name'] == 'events'
+            api["api_declaration"]
+            for api in self.swagger.api_docs["apis"]
+            if api["name"] == "events"
         ]
         if events:
-            self.event_models = events[0]['models']
+            self.event_models = events[0]["models"]
         else:
             self.event_models = {}
 
@@ -305,15 +323,15 @@ class Client:
         return self.repositories.get(name)
 
     async def process_ws(self, msg):
-        """Process one incoming websocket message.
-        """
+        """Process one incoming websocket message."""
         msg = EventMessage(self, msg)
 
         # First, call traditional listeners
-        if msg['type'] not in {"ChannelDialplan","ChannelVarset"}:
+        if msg["type"] not in {"ChannelDialplan", "ChannelVarset"}:
             log.debug("DISP ***** Dispatch:%s\n%s", msg, pformat(vars(msg)))
-        listeners = list(self.event_listeners.get(msg['type'], [])) \
-                    + list(self.event_listeners.get('*', []))
+        listeners = list(self.event_listeners.get(msg["type"], [])) + list(
+            self.event_listeners.get("*", [])
+        )
         for listener in listeners:
             cb = await listener(msg)
 
@@ -358,9 +376,13 @@ class Client:
             raise ValueError("Cannot find event model '%s'" % event_type)
 
         # Extract the fields that are of the expected type
-        obj_fields = [k for (k, v) in event_model['properties'].items() if v['type'] == model_id]
+        obj_fields = [
+            k for (k, v) in event_model["properties"].items() if v["type"] == model_id
+        ]
         if not obj_fields:
-            raise ValueError("Event model '%s' has no fields of type %s" % (event_type, model_id))
+            raise ValueError(
+                "Event model '%s' has no fields of type %s" % (event_type, model_id)
+            )
 
         def extract_objects(event):
             """Extract objects of a given type from an event.
@@ -373,7 +395,8 @@ class Client:
             # Extract the fields which are of the expected type
             obj = {
                 obj_field: factory_fn(self, json=event[obj_field])
-                for obj_field in obj_fields if event._get(obj_field)
+                for obj_field in obj_fields
+                if event._get(obj_field)
             }
             # If there's only one field in the schema, just pass that along
             if len(obj_fields) == 1:
@@ -397,56 +420,62 @@ class Client:
                 async for objs, event in listener:
                     client.start_soon(handle_new_client, objs, event)
         """
-        return self.on_object_event(event_type, Channel, 'Channel', filter=filter)
+        return self.on_object_event(event_type, Channel, "Channel", filter=filter)
 
     def on_bridge_event(self, event_type, filter=None):
         """Listener for Bridge related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, Bridge, 'Bridge', filter=filter)
+        return self.on_object_event(event_type, Bridge, "Bridge", filter=filter)
 
     def on_playback_event(self, event_type, filter=None):
         """Listener for Playback related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, Playback, 'Playback', filter=filter)
+        return self.on_object_event(event_type, Playback, "Playback", filter=filter)
 
     def on_live_recording_event(self, event_type, filter=None):
         """Listener for LiveRecording related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, LiveRecording, 'LiveRecording', filter=filter)
+        return self.on_object_event(
+            event_type, LiveRecording, "LiveRecording", filter=filter
+        )
 
     def on_stored_recording_event(self, event_type, filter=None):
         """Listener for StoredRecording related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, StoredRecording, 'StoredRecording', filter=filter)
+        return self.on_object_event(
+            event_type, StoredRecording, "StoredRecording", filter=filter
+        )
 
     def on_endpoint_event(self, event_type, filter=None):
         """Listener for Endpoint related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, Endpoint, 'Endpoint', filter=filter)
+        return self.on_object_event(event_type, Endpoint, "Endpoint", filter=filter)
 
     def on_device_state_event(self, event_type, filter=None):
         """Listener for DeviceState related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, DeviceState, 'DeviceState', filter=filter)
+        return self.on_object_event(
+            event_type, DeviceState, "DeviceState", filter=filter
+        )
 
     def on_sound_event(self, event_type, filter=None):
         """Listener for Sound related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, Sound, 'Sound', filter=filter)
+        return self.on_object_event(event_type, Sound, "Sound", filter=filter)
 
 
 class EventMessage:
@@ -463,12 +492,12 @@ class EventMessage:
         self._client = client
         self._orig_msg = msg
 
-        event_type = msg['type']
+        event_type = msg["type"]
         event_model = client.event_models.get(event_type)
         if not event_model:
             log.warn("Cannot find event model '%s'" % event_type)
             return
-        event_model = event_model.get('properties', {})
+        event_model = event_model.get("properties", {})
 
         for k, v in msg.items():
             setattr(self, k, v)
@@ -476,9 +505,9 @@ class EventMessage:
             m = event_model.get(k)
             if m is None:
                 continue
-            t = m['type']
+            t = m["type"]
             is_list = False
-            m = re.match(r'''List\[(.*)\]''', t)
+            m = re.match(r"""List\[(.*)\]""", t)
             if m:
                 t = m.group(1)
                 is_list = True
@@ -506,7 +535,7 @@ class EventMessage:
     async def _send_event(self):
         for k in self._orig_msg.keys():
             v = getattr(self, k)
-            do_ev = getattr(v, 'do_event', None)
+            do_ev = getattr(v, "do_event", None)
             if do_ev is not None:
                 await do_ev(self)
 

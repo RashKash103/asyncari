@@ -7,8 +7,8 @@
 import urllib.parse
 
 import anyio
-from async_generator import asynccontextmanager
-from asyncswagger11.http_client import AsynchronousHttpClient, ApiKeyAuthenticator
+from contextlib import asynccontextmanager
+from aioswagger11.http_client import AsynchronousHttpClient, ApiKeyAuthenticator
 
 from asyncari.client import Client
 
@@ -21,15 +21,17 @@ async def connect(base_url, apps, username, password):
     :param apps: the Stasis app(s) to register for.
     :param username: ARI username
     :param password: ARI password
-    
+
     Usage::
         async with asyncari.connect(base_url, "hello", username, password) as ari:
             async for msg in ari:
                 ari.taskgroup.start_soon(handle_msg, msg)
 
     """
-    host = urllib.parse.urlparse(base_url).netloc.split(':')[0]
-    http_client = AsynchronousHttpClient(auth=ApiKeyAuthenticator(host, username + ':' + password))
+    host = urllib.parse.urlparse(base_url).netloc.split(":")[0]
+    http_client = AsynchronousHttpClient(
+        auth=ApiKeyAuthenticator(host, username + ":" + password)
+    )
     try:
         async with anyio.create_task_group() as tg:
             client = Client(tg, base_url, apps, http_client)
